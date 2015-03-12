@@ -59,7 +59,11 @@ class AdvancedSerializerMacro(val c: Context) {
     }
     
     //map ctor fields to rules
-    val constructorRules = selectedTypeSymbol.primaryConstructor.asMethod.paramLists.flatten.map(s => s -> rules.find(_.field.children.last.symbol.name == s.name))
+    val constructorRules = selectedTypeSymbol.primaryConstructor.asMethod.paramLists.flatten.map {s => 
+      val possibleRules = rules.filter(_.field.children.last.symbol.name == s.name)
+      if (possibleRules.size > 1) c.abort(possibleRules(1).field.pos, s"There is already a rule for field $s. There can only exists one rule per field")
+      s -> possibleRules.headOption
+    }
     
     val generatedSerializators = constructorRules map { case (ctorArg, rule) => 
         rule match {
