@@ -9,12 +9,18 @@ object AdvancedSerializerTest extends App {
     def z = 23
   }
   
+  
   val fooSerializer = new AdvancedSerializer.ForType[Foo] {
     ignoreField(_.a)("Hello")
     renameField(_.b)("bb")
-    mapField(_.c)(_ getOrElse "")(Option.apply)
+    mapField(_.c)(_ getOrElse null)(Option.apply)
     mapRenameField(_.oldName)("newName")(_.toInt)(_.toString)
   }.build()
+  implicit val formats = DefaultFormats + fooSerializer
   
-  fooSerializer.serialize(DefaultFormats)(Foo("hi", 42, None, 42, "old"))
+  val foo = Foo("Hello", 42, None, 42, "21")
+  val ser = fooSerializer.serialize(DefaultFormats)(foo)
+  println(ser)
+  val newFoo = Extraction.extract[Foo](ser)
+  assert(newFoo == foo, s"$foo != $newFoo")
 }

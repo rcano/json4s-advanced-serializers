@@ -28,7 +28,7 @@ class AdvancedSerializerMacro(val c: Context) {
   case class MapField(field: Tree, newName: String, from: Tree, to: Tree) extends Rule
   
   def forType[T: c.WeakTypeTag](): Tree = {
-    val selectedType = {
+    val selectedTypeSymbol = {
       val res = c.weakTypeOf[T]
       //validate class type was used
       if (!res.typeSymbol.isClass || res.typeSymbol.isAbstract || !res.typeSymbol.asClass.primaryConstructor.isPublic) {
@@ -36,6 +36,7 @@ class AdvancedSerializerMacro(val c: Context) {
       }
       res.typeSymbol.asClass
     }
+    val selectedType = c.weakTypeOf[T]
     
     lazy val extractRule: PartialFunction[Tree, Rule] =  {
       case t@q"$pref.ignoreField[..$tparams]($field)($defaultVal)" => IgnoreField(field, defaultVal)
@@ -50,40 +51,32 @@ class AdvancedSerializerMacro(val c: Context) {
     for (rule <- rules) {
       rule.field match {
         case q"($param) => $pref.$expr" if param.symbol == pref.symbol =>
-          if (!selectedType.primaryConstructor.asMethod.paramLists.flatten.exists(p => p.name == expr)) 
-            c.abort(rule.field.pos, s"Selected field is not a constructor parameter of $selectedType")
-        case other => c.abort(rule.field.pos, s"Invalid expression. Only field selections of the form _.someField are allowed here. Please select one of $selectedType fields")            
+          if (!selectedTypeSymbol.primaryConstructor.asMethod.paramLists.flatten.exists(p => p.name == expr)) 
+            c.abort(rule.field.pos, s"Selected field is not a constructor parameter of $selectedTypeSymbol")
+        case other => c.abort(rule.field.pos, s"Invalid expression. Only field selections of the form _.someField are allowed here. Please select one of $selectedTypeSymbol fields")            
       }
 //      println(s"Good rule $rule. Field name: ${rule.field.children.last.symbol}")
     }
     
     //map ctor fields to rules
-    val constructorRules = selectedType.primaryConstructor.asMethod.paramLists.flatten.map(s => s -> rules.find(_.field.children.last.symbol.name == s.name))
-    
-    def genSerializer(ctorArg: Symbol, rule: Option[Rule]): (Tree, Tree) = rule match {
-      case Some(IgnoreField(_, defaultValue)) => q"" -> defaultValue
-      case Some(RenameField(_, newName)) => q"$newName -> Extraction.decompose(v.$ctorArg)" -> q"""Extraction.extract[${ctorArg.info}](jv \ $newName)"""
-      case Some(MapField(_, newName, from, to)) => 
-        val toTpe = to.tpe.baseType(symbolOf[_ => _]).typeArgs(1)
-        q"$newName -> Extraction.decompose($to(v.$ctorArg))" -> q"""$from(Extraction.extract[$toTpe](jv \ $newName))"""
-        
-      case None => q"${ctorArg.name.toString} -> Extraction.decompose(v.$ctorArg)" -> q"""Extraction.extract[${ctorArg.info}](jv \ ${ctorArg.name.toString})"""
-    }
+    val constructorRules = selectedTypeSymbol.primaryConstructor.asMethod.paramLists.flatten.map(s => s -> rules.find(_.field.children.last.symbol.name == s.name))
     
     val generatedSerializators = constructorRules map { case (ctorArg, rule) => 
         rule match {
-          case Some(IgnoreField(_, defaultValue)) => q"" -> defaultValue
-          case Some(RenameField(_, newName)) => q"$newName -> Extraction.decompose(v.$ctorArg)" -> q"""Extraction.extract[${ctorArg.info}](jv \ $newName)"""
+          case Some(IgnoreField(_, defaultValue)) => q"" -> c.untypecheck(defaultValue)
+          case Some(RenameField(_, newName)) => q"$newName -> Extraction.decompose(v.${ctorArg.name.toTermName})" -> q"""Extraction.extract[${ctorArg.info}](jv \ $newName)"""
           case Some(MapField(_, newName, from, to)) => 
             val toTpe = to.tpe.baseType(symbolOf[_ => _]).typeArgs(0)
-            q"$newName -> Extraction.decompose($from(v.$ctorArg))" -> q"""$to(Extraction.extract[$toTpe](jv \ $newName))"""
+            val uTo = c untypecheck to
+            val uFrom = c untypecheck from
+            q"$newName -> Extraction.decompose($uFrom(v.${ctorArg.name.toTermName}))" -> q"""$uTo(Extraction.extract[$toTpe](jv \ $newName))"""
         
-          case None => q"${ctorArg.name.toString} -> Extraction.decompose(v.$ctorArg)" -> q"""Extraction.extract[${ctorArg.info}](jv \ ${ctorArg.name.toString})"""}
+          case None => q"${ctorArg.name.toString} -> Extraction.decompose(v.${ctorArg.name.toTermName})" -> q"""Extraction.extract[${ctorArg.info}](jv \ ${ctorArg.name.toString})"""}
     }
     
 //    generatedSerializators foreach (t => println(showCode(t._1) + "  ========   " + showCode(t._2)))
     
-    val writeLogic = generatedSerializators.map(_._1).filterNot(_.isEmpty).reduce((a, b) => q"$a ~ $b")
+    val writeLogic = generatedSerializators.map(_._1).filterNot(_.isEmpty).reduceOption((a, b) => q"$a ~ $b") getOrElse q"JNothing"
     val readLogic = q"new $selectedType(..${generatedSerializators.map(_._2)})"
     
     val res = q"""
@@ -101,7 +94,7 @@ new Serializer[$selectedType] {
     case v: $selectedType => $writeLogic
   }
 }"""
-    println(showCode(res))
+//    println(showCode(res))
     res
     
   }
