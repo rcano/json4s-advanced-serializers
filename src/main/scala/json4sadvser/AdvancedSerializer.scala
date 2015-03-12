@@ -89,7 +89,7 @@ class AdvancedSerializerMacro(val c: Context) {
     val res = q"""
 import org.json4s._, JsonDSL._
     
-val res: Serializer[$selectedType] = new Serializer[$selectedType] {
+new Serializer[$selectedType] {
   
   val Class = classOf[$selectedType]
    
@@ -97,11 +97,10 @@ val res: Serializer[$selectedType] = new Serializer[$selectedType] {
     case (TypeInfo(Class, _), jv) => $readLogic
   }
     
-  def serialize(implicit format: Formats): PartialFunction[Any, JValue] = {
+  override def serialize(implicit format: Formats): PartialFunction[Any, JValue] = {
     case v: $selectedType => $writeLogic
   }
-}
-res"""
+}"""
     println(showCode(res))
     res
     
