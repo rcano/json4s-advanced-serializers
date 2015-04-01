@@ -69,6 +69,8 @@ class AdvancedSerializerMacro(val c: Context) {
                  to.tpe.baseType(symbolOf[_ => _]).typeArgs(0))
     }
 
+    val rules = c.prefix.tree collect extractRule
+    
     //validate fields
     for (rule <- rules) {
       rule.field match {
