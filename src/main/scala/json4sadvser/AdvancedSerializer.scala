@@ -21,13 +21,13 @@ object AdvancedSerializer {
     
     final def build(): Serializer[T] = macro AdvancedSerializerMacro.forType[T]
   }
-  
+
   sealed trait Rule[T]
 }
 
 class AdvancedSerializerMacro(val c: Context) {
   import c.universe._, AdvancedSerializer._
-  
+
   sealed trait Rule { def field: Tree }
   case class IgnoreField(field: Tree, defaultValue: Tree) extends Rule
   case class RenameField(field: Tree, newName: String) extends Rule
@@ -68,9 +68,7 @@ class AdvancedSerializerMacro(val c: Context) {
                  q"(jv: JValue, $toParam) => $toBody",
                  to.tpe.baseType(symbolOf[_ => _]).typeArgs(0))
     }
-    
-    val rules = c.prefix.tree collect extractRule
-    
+
     //validate fields
     for (rule <- rules) {
       rule.field match {
